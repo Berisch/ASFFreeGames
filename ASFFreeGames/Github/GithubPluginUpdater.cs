@@ -9,7 +9,7 @@ using ArchiSteamFarm.Web.GitHub.Data;
 namespace Maxisoft.ASF.Github;
 
 public class GithubPluginUpdater(Lazy<Version> version) {
-	public const string RepositoryName = "maxisoft/ASFFreeGames";
+	public const string RepositoryName = "Berisch/ASFFreeGames";
 	public bool CanUpdate { get; internal set; } = true;
 
 	private Version CurrentVersion => version.Value;

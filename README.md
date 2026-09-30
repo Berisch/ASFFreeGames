@@ -1,10 +1,12 @@
 # ASF-FreeGames
 
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0) [![Plugin-ci](https://github.com/maxisoft/ASFFreeGames/actions/workflows/ci.yml/badge.svg)](https://github.com/maxisoft/ASFFreeGames/actions/workflows/ci.yml) [![Github All Releases](https://img.shields.io/github/downloads/maxisoft/ASFFreeGames/total.svg)]()
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0) [![Plugin-ci](https://github.com/Berisch/ASFFreeGames/actions/workflows/ci.yml/badge.svg)](https://github.com/Berisch/ASFFreeGames/actions/workflows/ci.yml) [![Github All Releases](https://img.shields.io/github/downloads/Berisch/ASFFreeGames/total.svg)]()
 
 ## Description
 
 ASF-FreeGames is a **[plugin](https://github.com/JustArchiNET/ArchiSteamFarm/wiki/Plugins)** for **[ArchiSteamFarm](https://github.com/JustArchiNET/ArchiSteamFarm)** allowing one to automatically **collect free steam games** 🔑 posted on [Reddit](https://www.reddit.com/user/ASFinfo?sort=new).
+
+> This is a maintained fork of [maxisoft/ASFFreeGames](https://github.com/maxisoft/ASFFreeGames). It builds against the latest stable ArchiSteamFarm, and the plugin updates itself from this fork's releases.
 
 ---
 
@@ -14,7 +16,7 @@ ASF-FreeGames is a **[plugin](https://github.com/JustArchiNET/ArchiSteamFarm/wik
 
 ## Installation
 
-- 🔽 Download latest [Dll](https://github.com/maxisoft/ASFFreeGames/releases) from the release page
+- 🔽 Download latest [Dll](https://github.com/Berisch/ASFFreeGames/releases) from the release page
 - ➡️ Move the **dll** into the `plugins` folder of your *ArchiSteamFarm* installation
 - 🔄 (re)start ArchiSteamFarm
 - 🎉 Have fun
@@ -23,6 +25,13 @@ ASF-FreeGames is a **[plugin](https://github.com/JustArchiNET/ArchiSteamFarm/wik
 
 Every ⏰`30 minutes` the plugin starts 🔬analyzing [reddit](https://www.reddit.com/user/ASFinfo?sort=new) for new **free games**⚾.
 Then every 🔑`addlicense asf appid` command found is broadcasted to each currently **logged bot** 💪.
+
+The list is fetched once per run and shared by all bots. Sources are tried one after another:
+1. the [ASFinfo Reddit feed](https://www.reddit.com/user/ASFinfo.rss?sort=new) (RSS, the JSON API is blocked for unauthenticated clients)
+2. the [gist](https://gist.github.com/C4illin/e8c5cf365d816f2640242bf01d8d3675) maintained by the ASFinfo bot itself (no free to play / DLC flags)
+3. public [redlib](https://github.com/redlib-org/redlib) instances, as a last resort
+
+After ASF starts, the first run waits until every enabled bot is logged on (at most 5 minutes). A bot that logs on later is caught up once using the already fetched list.
 
 ## Commands
 
