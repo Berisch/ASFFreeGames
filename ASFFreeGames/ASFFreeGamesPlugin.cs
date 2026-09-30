@@ -63,6 +63,16 @@ internal sealed class ASFFreeGamesPlugin : IASF, IBot, IBotConnection, IBotComma
 
 	private readonly CollectIntervalManager CollectIntervalManager;
 
+	private static readonly TimeSpan AllBotsLoggedOnDelay = TimeSpan.FromSeconds(15);
+	private static readonly TimeSpan LateBotCatchUpDelay = TimeSpan.FromSeconds(30);
+
+	// set once the first scheduled collect operation started / was moved earlier because every enabled bot is logged on
+	private int FirstRunStarted;
+	private int FirstRunScheduled;
+
+	// bots included in a collect operation since the plugin started, so that a bot logging on late is caught up exactly once
+	private readonly ConcurrentHashSet<string> ProcessedBotNames = new(StringComparer.OrdinalIgnoreCase);
+
 	public ASFFreeGamesPlugin() {
 		CommandDispatcher = new CommandDispatcher(Options);
 		CollectIntervalManager = new CollectIntervalManager(this);
@@ -140,6 +150,18 @@ internal sealed class ASFFreeGamesPlugin : IASF, IBot, IBotConnection, IBotComma
 				return;
 			}
 
+			if (Interlocked.Exchange(ref FirstRunStarted, 1) == 0) {
+				string[] missingBots = GetEnabledBotsNotLoggedOn();
+
+				if (missingBots.Length > 0) {
+					ArchiLogger.LogGenericWarning($"[FreeGames] starting the first collection without {missingBots.Length} enabled bot(s) that are not logged on: {string.Join(", ", missingBots)}");
+				}
+			}
+
+			foreach (Bot bot in reorderedBots) {
+				ProcessedBotNames.Add(bot.BotName);
+			}
+
 			if (!cts.IsCancellationRequested) {
 				string cmd = $"FREEGAMES {FreeGamesCommand.CollectInternalCommandString} " + string.Join(' ', reorderedBots.Select(static bot => bot.BotName));
 
@@ -169,6 +191,61 @@ internal sealed class ASFFreeGamesPlugin : IASF, IBot, IBotConnection, IBotComma
 		if (ctx is not null) {
 			await ctx.LoadFromFileSystem(CancellationToken).ConfigureAwait(false);
 		}
+
+		OnBotReady(bot);
+	}
+
+	private void OnBotReady(Bot bot) {
+		if (Volatile.Read(ref FirstRunStarted) == 0) {
+			// right after ASF (re)starts: wait for every enabled bot instead of collecting for whichever logged on first
+			if ((GetEnabledBotsNotLoggedOn().Length == 0) && (Interlocked.Exchange(ref FirstRunScheduled, 1) == 0)) {
+				ArchiLogger.LogGenericInfo($"[FreeGames] all {Bots.Count} enabled bot(s) logged on, starting collection in {AllBotsLoggedOnDelay.TotalSeconds}s");
+				CollectIntervalManager.ScheduleNextRun(AllBotsLoggedOnDelay);
+			}
+
+			return;
+		}
+
+		if (!ProcessedBotNames.Contains(bot.BotName)) {
+			// the plugin hook must not block ASF, so the catch up runs in the background
+			ArchiSteamFarm.Core.Utilities.InBackground(() => CatchUpLateBot(bot));
+		}
+	}
+
+	// runs unobserved in the background, so it must never throw
+	private async Task CatchUpLateBot(Bot bot) {
+		try {
+			await Task.Delay(LateBotCatchUpDelay, CancellationToken).ConfigureAwait(false);
+
+			// the bot may have disconnected meanwhile, or been included in a scheduled run
+			if (!bot.IsConnectedAndLoggedOn || !Bots.Contains(bot) || !ProcessedBotNames.Add(bot.BotName)) {
+				return;
+			}
+
+			if (!Context.Valid || (Context.Bots.Count != Bots.Count)) {
+				CreateContext();
+			}
+
+			// no TemporaryChangeCancellationToken here: it is not safe to use concurrently with a scheduled run
+			string cmd = $"FREEGAMES {FreeGamesCommand.CollectCachedInternalCommandString} {bot.BotName}";
+			await OnBotCommand(null, EAccess.None, cmd, cmd.Split()).ConfigureAwait(false);
+		}
+		catch (OperationCanceledException) {
+			// plugin is shutting down
+		}
+		catch (Exception ex) {
+			ArchiLogger.LogGenericWarning($"Failed to catch up free games collection for {bot.BotName}: {ex.Message}");
+		}
+	}
+
+	private string[] GetEnabledBotsNotLoggedOn() {
+		IReadOnlyDictionary<string, Bot>? allBots = Bot.BotsReadOnly;
+
+		if (allBots is null) {
+			return [];
+		}
+
+		return allBots.Values.Where(b => b.BotConfig.Enabled && !Bots.Contains(b)).Select(static b => b.BotName).OrderBy(static name => name, StringComparer.OrdinalIgnoreCase).ToArray();
 	}
 
 	private async Task RemoveBot(Bot bot) {

@@ -26,9 +26,19 @@ internal interface ICollectIntervalManager : IDisposable {
 	/// Stops the timer and disposes it.
 	/// </summary>
 	void StopTimer();
+
+	/// <summary>
+	/// Moves the next collect operation to <paramref name="delay" /> from now, if the timer is started.
+	/// </summary>
+	void ScheduleNextRun(TimeSpan delay);
 }
 
 internal sealed class CollectIntervalManager(IASFFreeGamesPlugin plugin) : ICollectIntervalManager {
+	/// <summary>
+	///     How long the first collect operation waits for every enabled bot to log on. The plugin moves it earlier as soon as they all are.
+	/// </summary>
+	internal static readonly TimeSpan WaitForBotsTimeout = TimeSpan.FromMinutes(5);
+
 	private static readonly RandomUtils.GaussianRandom Random = new();
 
 	/// <summary>
@@ -50,8 +60,8 @@ internal sealed class CollectIntervalManager(IASFFreeGamesPlugin plugin) : IColl
 	// The public method that starts the timer if needed
 	public void StartTimerIfNeeded() {
 		if (Timer is null) {
-			// Get a random initial delay
-			TimeSpan initialDelay = GetRandomizedTimerDelay(30, 6 * RandomizeIntervalSwitch, 1, 5 * 60);
+			// Fallback initial delay, used when some enabled bots never log on (see ScheduleNextRun)
+			TimeSpan initialDelay = WaitForBotsTimeout;
 
 			// Get a random regular delay
 			TimeSpan regularDelay = GetRandomizedTimerDelay(plugin.Options.RecheckInterval.TotalSeconds, 7 * 60 * RandomizeIntervalSwitch);
@@ -80,6 +90,15 @@ internal sealed class CollectIntervalManager(IASFFreeGamesPlugin plugin) : IColl
 	}
 
 	public void StopTimer() => ResetTimer(null);
+
+	public void ScheduleNextRun(TimeSpan delay) {
+		try {
+			Timer?.Change(delay, GetRandomizedTimerDelay());
+		}
+		catch (ObjectDisposedException) {
+			// the timer was reset concurrently, the new one already has its own schedule
+		}
+	}
 
 	/// <summary>
 	///     Calculates a random delay using a normal distribution with a given mean and standard deviation.
