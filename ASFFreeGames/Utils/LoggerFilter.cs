@@ -59,7 +59,7 @@ public partial class LoggerFilter {
 
             bool reconfigure = false;
 
-            foreach (LoggingRule loggingRule in config.LoggingRules.Where(loggingRule => !loggingRule.Filters.Any(f => ReferenceEquals(f, MethodFilter)))) {
+            foreach (LoggingRule loggingRule in (config?.LoggingRules ?? []).Where(loggingRule => !loggingRule.Filters.Any(f => ReferenceEquals(f, MethodFilter)))) {
                 loggingRule.Filters.Insert(0, MethodFilter);
                 reconfigure = true;
             }

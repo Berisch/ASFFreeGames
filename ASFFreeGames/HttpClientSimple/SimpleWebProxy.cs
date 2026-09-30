@@ -19,6 +19,9 @@ public sealed class SimpleWebProxy : IWebProxy {
 
 	public Uri? GetProxy(Uri destination) => ProxyAddress;
 
-	public bool IsBypassed(Uri host) =>
-		BypassOnLocal && (host.IsLoopback || host.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase));
+	public bool IsBypassed(Uri host) {
+		ArgumentNullException.ThrowIfNull(host);
+
+		return BypassOnLocal && (host.IsLoopback || host.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase));
+	}
 }
