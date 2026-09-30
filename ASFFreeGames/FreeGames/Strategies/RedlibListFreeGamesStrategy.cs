@@ -213,6 +213,9 @@ public sealed class RedlibListFreeGamesStrategy : IListFreeGamesStrategy {
 				if (task.IsCompleted) {
 					tasks.Remove(node);
 					node = tasks.First;
+
+					// mark the failure as observed, otherwise it surfaces later as a FATAL UnobservedTaskException in ASF logs
+					_ = task.Exception;
 					task.Dispose();
 
 					continue;

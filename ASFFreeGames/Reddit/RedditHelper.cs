@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -19,27 +20,18 @@ internal static class RedditHelper {
 	internal const string User = "ASFinfo";
 
 	/// <summary>
-	///     Gets a collection of Reddit game entries from a JSON object.
+	///     Gets a collection of Reddit game entries from the user's Atom feed.
 	/// </summary>
 	/// <returns>A collection of Reddit game entries.</returns>
+	/// <remarks>The JSON API answers 403 "blocked by network security" to unauthenticated clients since mid 2026, the RSS/Atom feed still works.</remarks>
 	public static async ValueTask<IReadOnlyCollection<RedditGameEntry>> GetGames(SimpleHttpClient httpClient, uint retry = 5, CancellationToken cancellationToken = default) {
-		JsonNode? jsonPayload = await GetPayload(httpClient, cancellationToken, retry).ConfigureAwait(false);
+		string feed = await GetFeed(httpClient, cancellationToken, retry).ConfigureAwait(false);
 
-		JsonNode? childrenElement = jsonPayload["data"]?["children"];
-
-		return childrenElement is null ? [] : LoadMessages(childrenElement);
+		return LoadMessagesFromAtom(feed);
 	}
 
 	internal static IReadOnlyCollection<RedditGameEntry> LoadMessages(JsonNode children) {
 		Maxisoft.Utils.Collections.Dictionaries.OrderedDictionary<RedditGameEntry, EmptyStruct> games = new(new GameEntryIdentifierEqualityComparer());
-
-		IReadOnlyCollection<RedditGameEntry> returnValue() {
-			while (games.Count is > 0 and > MaxGameEntry) {
-				games.RemoveAt(games.Count - 1);
-			}
-
-			return (IReadOnlyCollection<RedditGameEntry>) games.Keys;
-		}
 
 		// ReSharper disable once LoopCanBePartlyConvertedToQuery
 		foreach (JsonNode? comment in (JsonArray) children) {
@@ -74,57 +66,109 @@ internal static class RedditHelper {
 				continue;
 			}
 
-			MatchCollection matches = RedditHelperRegexes.Command().Matches(text);
+			if (!AddGamesFromText(games, text, date)) {
+				break;
+			}
+		}
 
-			foreach (Match match in matches) {
-				ERedditGameEntryKind kind = ERedditGameEntryKind.None;
+		return TrimToMaxGameEntry(games);
+	}
 
-				if (RedditHelperRegexes.IsPermanentlyFree().IsMatch(text)) {
-					kind |= ERedditGameEntryKind.FreeToPlay;
+	/// <summary>
+	///     Gets a collection of Reddit game entries from an Atom feed (<c>/user/{User}.rss</c>).
+	/// </summary>
+	/// <param name="feed">The raw Atom xml.</param>
+	/// <returns>A collection of Reddit game entries, in feed order (newest first).</returns>
+	internal static IReadOnlyCollection<RedditGameEntry> LoadMessagesFromAtom(string feed) {
+		Maxisoft.Utils.Collections.Dictionaries.OrderedDictionary<RedditGameEntry, EmptyStruct> games = new(new GameEntryIdentifierEqualityComparer());
+
+		foreach (Match entry in RedditHelperRegexes.AtomEntry().Matches(feed)) {
+			string body = entry.Groups["body"].Value;
+			Match content = RedditHelperRegexes.AtomContent().Match(body);
+			Match updated = RedditHelperRegexes.AtomUpdated().Match(body);
+
+			if (!content.Success || !updated.Success) {
+				continue;
+			}
+
+			if (!DateTimeOffset.TryParse(updated.Groups["date"].Value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out DateTimeOffset date)) {
+				continue;
+			}
+
+			// the content is html escaped inside the xml, and the html itself contains entities such as &nbsp;
+			string text = WebUtility.HtmlDecode(WebUtility.HtmlDecode(content.Groups["content"].Value));
+
+			if (!AddGamesFromText(games, text, date.ToUnixTimeSeconds())) {
+				break;
+			}
+		}
+
+		return TrimToMaxGameEntry(games);
+	}
+
+	/// <summary>
+	///     Extracts the addlicense commands of a single message and adds the resulting entries to <paramref name="games" />.
+	/// </summary>
+	/// <returns>false once <see cref="MaxGameEntry" /> is reached, true otherwise.</returns>
+	private static bool AddGamesFromText(Maxisoft.Utils.Collections.Dictionaries.OrderedDictionary<RedditGameEntry, EmptyStruct> games, string text, long date) {
+		MatchCollection matches = RedditHelperRegexes.Command().Matches(text);
+
+		foreach (Match match in matches) {
+			ERedditGameEntryKind kind = ERedditGameEntryKind.None;
+
+			if (RedditHelperRegexes.IsFreeToPlay().IsMatch(text)) {
+				kind |= ERedditGameEntryKind.FreeToPlay;
+			}
+
+			if (RedditHelperRegexes.IsDlc().IsMatch(text)) {
+				kind = ERedditGameEntryKind.Dlc;
+			}
+
+			// Use separate matches to extract all app IDs (avoids Group.Captures compatibility issues)
+			MatchCollection appIdMatches = RedditHelperRegexes.AppId().Matches(match.Value);
+
+			foreach (Match appIdMatch in appIdMatches) {
+				string appIdValue = appIdMatch.Groups["appid"].Value;
+				RedditGameEntry gameEntry = new(appIdValue, kind, date);
+
+				try {
+					games.Add(gameEntry, default(EmptyStruct));
 				}
+				catch (ArgumentException) { }
 
-				if (RedditHelperRegexes.IsDlc().IsMatch(text)) {
-					kind = ERedditGameEntryKind.Dlc;
-				}
-
-				// Use separate matches to extract all app IDs (avoids Group.Captures compatibility issues)
-				MatchCollection appIdMatches = RedditHelperRegexes.AppId().Matches(match.Value);
-
-				foreach (Match appIdMatch in appIdMatches) {
-					string appIdValue = appIdMatch.Groups["appid"].Value;
-					RedditGameEntry gameEntry = new(appIdValue, kind, date);
-
-					try {
-						games.Add(gameEntry, default(EmptyStruct));
-					}
-					catch (ArgumentException) { }
-
-					if (games.Count >= MaxGameEntry) {
-						return returnValue();
-					}
+				if (games.Count >= MaxGameEntry) {
+					return false;
 				}
 			}
 		}
 
-		return returnValue();
+		return true;
+	}
+
+	private static IReadOnlyCollection<RedditGameEntry> TrimToMaxGameEntry(Maxisoft.Utils.Collections.Dictionaries.OrderedDictionary<RedditGameEntry, EmptyStruct> games) {
+		while (games.Count is > 0 and > MaxGameEntry) {
+			games.RemoveAt(games.Count - 1);
+		}
+
+		return (IReadOnlyCollection<RedditGameEntry>) games.Keys;
 	}
 
 	/// <summary>
-	///     Tries to get a JSON object from Reddit.
+	///     Tries to get the Atom feed from Reddit.
 	/// </summary>
 	/// <param name="httpClient">The http client instance to use.</param>
 	/// <param name="cancellationToken"></param>
 	/// <param name="retry"></param>
-	/// <returns>A JSON object response or null if failed.</returns>
+	/// <returns>The raw Atom xml.</returns>
 	/// <exception cref="RedditServerException">Thrown when Reddit returns a server error.</exception>
 	/// <remarks>This method is based on this GitHub issue: https://github.com/maxisoft/ASFFreeGames/issues/28</remarks>
-	private static async ValueTask<JsonNode> GetPayload(SimpleHttpClient httpClient, CancellationToken cancellationToken, uint retry = 5) {
+	private static async ValueTask<string> GetFeed(SimpleHttpClient httpClient, CancellationToken cancellationToken, uint retry = 5) {
 		HttpStreamResponse? response = null;
 
 		Dictionary<string, string> headers = new() {
 			{ "Pragma", "no-cache" },
 			{ "Cache-Control", "no-cache" },
-			{ "Accept", "application/json" },
+			{ "Accept", "application/atom+xml, application/xml;q=0.9, */*;q=0.8" },
 			{ "Sec-Fetch-Site", "none" },
 			{ "Sec-Fetch-Mode", "no-cors" },
 			{ "Sec-Fetch-Dest", "empty" },
@@ -147,25 +191,23 @@ internal static class RedditHelper {
 					throw new RedditServerException($"reddit http error code is {response.StatusCode}", response.StatusCode);
 				}
 
-				JsonNode? res = await ParseJsonNode(response, cancellationToken).ConfigureAwait(false);
+				string feed = await response.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
 
-				if (res is null) {
+				if (string.IsNullOrWhiteSpace(feed)) {
 					throw new RedditServerException("empty response", response.StatusCode);
 				}
 
-				try {
-					if ((res["kind"]?.GetValue<string>() != "Listing") ||
-						res["data"] is null) {
-						throw new RedditServerException("invalid response", response.StatusCode);
-					}
-				}
-				catch (Exception e) when (e is FormatException or InvalidOperationException) {
+				if (!feed.Contains("<feed", StringComparison.Ordinal)) {
 					throw new RedditServerException("invalid response", response.StatusCode);
 				}
 
-				return res;
+				return feed;
 			}
-			catch (Exception e) when (e is JsonException or IOException or RedditServerException or HttpRequestException) {
+			catch (RedditServerException e) when (e.StatusCode is HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests) {
+				// retrying a blocked or rate limited request right away only makes things worse, let the next strategy handle it
+				throw;
+			}
+			catch (Exception e) when (e is IOException or RedditServerException or HttpRequestException) {
 				// If it's the last retry, re-throw the original Exception
 				if (t + 1 == retry) {
 					throw;
@@ -185,10 +227,10 @@ internal static class RedditHelper {
 			cancellationToken.ThrowIfCancellationRequested();
 		}
 
-		return JsonNode.Parse("{}")!;
+		throw new RedditServerException("reddit rate limit reached", HttpStatusCode.TooManyRequests);
 	}
 
-	private static Uri GetUrl() => new($"https://www.reddit.com/user/{User}.json?sort=new", UriKind.Absolute);
+	private static Uri GetUrl() => new($"https://www.reddit.com/user/{User}.rss?sort=new&limit=100", UriKind.Absolute);
 
 	/// <summary>
 	///     Handles too many requests by checking the status code and headers of the response.
