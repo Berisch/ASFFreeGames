@@ -35,6 +35,7 @@ namespace ASFFreeGames.Commands {
 
 		internal const string SaveOptionsInternalCommandString = "_SAVEOPTIONS";
 		internal const string CollectInternalCommandString = "_COLLECT";
+		internal const string CollectCachedInternalCommandString = "_COLLECTCACHED";
 
 		private static PluginContext Context => ASFFreeGamesPlugin.Context;
 
@@ -68,7 +69,9 @@ namespace ASFFreeGames.Commands {
 					case SaveOptionsInternalCommandString:
 						return await HandleInternalSaveOptionsCommand(bot, cancellationToken).ConfigureAwait(false);
 					case CollectInternalCommandString:
-						return await HandleInternalCollectCommand(bot, args, cancellationToken).ConfigureAwait(false);
+						return await HandleInternalCollectCommand(bot, args, ECollectGameRequestSource.Scheduled, cancellationToken).ConfigureAwait(false);
+					case CollectCachedInternalCommandString:
+						return await HandleInternalCollectCommand(bot, args, ECollectGameRequestSource.BotLoggedOn, cancellationToken).ConfigureAwait(false);
 				}
 			}
 
@@ -153,7 +156,7 @@ namespace ASFFreeGames.Commands {
 			return null;
 		}
 
-		private async ValueTask<string?> HandleInternalCollectCommand(Bot? bot, string[] args, CancellationToken cancellationToken) {
+		private async ValueTask<string?> HandleInternalCollectCommand(Bot? bot, string[] args, ECollectGameRequestSource requestSource, CancellationToken cancellationToken) {
 			Dictionary<string, Bot> botMap = Context.Bots.ToDictionary(static b => b.BotName.Trim(), static b => b, StringComparer.InvariantCultureIgnoreCase);
 
 			List<Bot> bots = [];
@@ -175,7 +178,7 @@ namespace ASFFreeGames.Commands {
 				bots = [bot];
 			}
 
-			int collected = await CollectGames(bots, ECollectGameRequestSource.Scheduled, cancellationToken).ConfigureAwait(false);
+			int collected = await CollectGames(bots, requestSource, cancellationToken).ConfigureAwait(false);
 
 			return FormatBotResponse(bot, $"Collected a total of {collected} free game(s)" + (bots.Count > 1 ? $" on {bots.Count} bots" : $" on {bots.FirstOrDefault()?.BotName}"));
 		}
@@ -192,6 +195,11 @@ namespace ASFFreeGames.Commands {
 		private readonly HashSet<GameIdentifier> PreviouslySeenAppIds = new();
 		private static LoggerFilter LoggerFilter => Context.LoggerFilter;
 		private const int DayInSeconds = 24 * 60 * 60;
+
+		// the last successfully fetched list, shared by all bots. Only accessed while holding SemaphoreSlim
+		private static readonly TimeSpan CacheFallbackMaxAge = TimeSpan.FromHours(6);
+		private IReadOnlyCollection<RedditGameEntry>? CachedGames;
+		private DateTimeOffset CachedGamesAt;
 		private static readonly Lazy<Regex> InvalidAppPurchaseRegex = new(BuildInvalidAppPurchaseRegex);
 
 		private static readonly EPurchaseResultDetail[] InvalidAppPurchaseCodes = { EPurchaseResultDetail.AlreadyPurchased, EPurchaseResultDetail.RegionNotSupported, EPurchaseResultDetail.InvalidPackage, EPurchaseResultDetail.DoesNotOwnRequiredApp };
@@ -224,47 +232,68 @@ namespace ASFFreeGames.Commands {
 				}
 			}
 
-			if (!await semaphore.WaitAsync(100, cancellationToken).ConfigureAwait(false)) {
+			// a bot that logged on late must not be skipped just because a collection is already running, wait for it instead
+			// note: the (TimeSpan, CancellationToken) overload is trimmed out of ASF builds, keep the int one
+			int semaphoreTimeoutMs = requestSource is ECollectGameRequestSource.BotLoggedOn ? 3 * 60 * 1000 : 100;
+
+			if (!await semaphore.WaitAsync(semaphoreTimeoutMs, cancellationToken).ConfigureAwait(false)) {
 				return 0;
 			}
 
 			int res = 0;
 
 			try {
-				IReadOnlyCollection<RedditGameEntry> games;
+				string remote = "cache";
 
-				ListFreeGamesContext strategyContext = new(Options, new Lazy<SimpleHttpClient>(() => HttpFactory.Value.CreateGeneric())) {
-					Strategy = Strategy,
-					HttpClientFactory = HttpFactory.Value,
-					PreviousSucessfulStrategy = PreviousSucessfulStrategy
-				};
+				// the list is the same for every bot: a bot logging on between two scheduled runs reuses the last one instead of fetching again
+				IReadOnlyCollection<RedditGameEntry>? games = requestSource is ECollectGameRequestSource.BotLoggedOn ? GetCachedGames(2 * Options.RecheckInterval) : null;
 
-				try {
+				if (games is null) {
+					ListFreeGamesContext strategyContext = new(Options, new Lazy<SimpleHttpClient>(() => HttpFactory.Value.CreateGeneric())) {
+						Strategy = Strategy,
+						HttpClientFactory = HttpFactory.Value,
+						PreviousSucessfulStrategy = PreviousSucessfulStrategy
+					};
+
+					try {
 #pragma warning disable CA2000
-					games = await Strategy.GetGames(strategyContext, cancellationToken).ConfigureAwait(false);
+						games = await Strategy.GetGames(strategyContext, cancellationToken).ConfigureAwait(false);
 #pragma warning restore CA2000
-				}
-				catch (Exception e) when (e is InvalidOperationException or JsonException or IOException or RedditServerException) {
-					if (Options.VerboseLog ?? false) {
-						ArchiSteamFarm.Core.ASF.ArchiLogger.LogGenericException(e);
-					}
-					else {
-						ArchiSteamFarm.Core.ASF.ArchiLogger.LogGenericError($"Unable to get and load json {e.GetType().Name}: {e.Message}");
-					}
 
-					return 0;
-				}
-				finally {
-					PreviousSucessfulStrategy = strategyContext.PreviousSucessfulStrategy;
-
-					if (Options.VerboseLog ?? false) {
-						ArchiSteamFarm.Core.ASF.ArchiLogger.LogGenericInfo($"PreviousSucessfulStrategy = {PreviousSucessfulStrategy}");
-					}
-				}
+						if (games.Count > 0) {
+							CachedGames = games;
+							CachedGamesAt = DateTimeOffset.UtcNow;
+						}
 
 #pragma warning disable CA1308
-				string remote = strategyContext.PreviousSucessfulStrategy.ToString().ToLowerInvariant();
+						remote = strategyContext.PreviousSucessfulStrategy.ToString().ToLowerInvariant();
 #pragma warning restore CA1308
+					}
+					catch (Exception e) when (e is InvalidOperationException or JsonException or IOException or RedditServerException or AggregateException) {
+						if (Options.VerboseLog ?? false) {
+							ArchiSteamFarm.Core.ASF.ArchiLogger.LogGenericException(e);
+						}
+						else {
+							ArchiSteamFarm.Core.ASF.ArchiLogger.LogGenericError($"Unable to get the free games list {e.GetType().Name}: {e.Message}");
+						}
+
+						games = GetCachedGames(CacheFallbackMaxAge);
+
+						if (games is null) {
+							return 0;
+						}
+
+						ArchiSteamFarm.Core.ASF.ArchiLogger.LogGenericInfo($"[FreeGames] using the list fetched {(int) (DateTimeOffset.UtcNow - CachedGamesAt).TotalMinutes} minute(s) ago", nameof(CollectGames));
+					}
+					finally {
+						PreviousSucessfulStrategy = strategyContext.PreviousSucessfulStrategy;
+
+						if (Options.VerboseLog ?? false) {
+							ArchiSteamFarm.Core.ASF.ArchiLogger.LogGenericInfo($"PreviousSucessfulStrategy = {PreviousSucessfulStrategy}");
+						}
+					}
+				}
+
 				LogNewGameCount(games, remote, VerboseLog || requestSource is ECollectGameRequestSource.RequestedByUser);
 
 				foreach (Bot bot in bots) {
@@ -344,7 +373,8 @@ namespace ASFFreeGames.Commands {
 							res++;
 						}
 						else {
-							if ((requestSource != ECollectGameRequestSource.RequestedByUser) && (resp?.Contains("RateLimited", StringComparison.InvariantCultureIgnoreCase) ?? false)) {
+							// "RateLimited" for packages (sub/), "RateLimitExceeded" for apps (app/)
+							if ((requestSource != ECollectGameRequestSource.RequestedByUser) && (resp?.Contains("RateLimit", StringComparison.InvariantCultureIgnoreCase) ?? false)) {
 								if (VerboseLog) {
 									bot.ArchiLogger.LogGenericWarning("[FreeGames] Rate limit reached ! Skipping remaining games...", nameof(CollectGames));
 								}
@@ -377,6 +407,12 @@ namespace ASFFreeGames.Commands {
 			}
 
 			return res;
+		}
+
+		private IReadOnlyCollection<RedditGameEntry>? GetCachedGames(TimeSpan maxAge) {
+			IReadOnlyCollection<RedditGameEntry>? cached = CachedGames;
+
+			return cached is { Count: > 0 } && ((DateTimeOffset.UtcNow - CachedGamesAt) < maxAge) ? cached : null;
 		}
 
 		private void LogNewGameCount(IReadOnlyCollection<RedditGameEntry> games, string remote, bool logZero = false) {

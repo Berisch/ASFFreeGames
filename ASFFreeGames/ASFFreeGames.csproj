@@ -4,12 +4,13 @@
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<DebugSymbols>True</DebugSymbols>
 		<DebugType>pdbonly</DebugType>
-		<TargetFramework>net9.0</TargetFramework>
+		<TargetFramework>net10.0</TargetFramework>
 	</PropertyGroup>
 
 	<ItemGroup>
 		<PackageReference Include="ConfigureAwaitChecker.Analyzer" PrivateAssets="all" />
 		<PackageReference Include="JetBrains.Annotations" PrivateAssets="all" />
+		<PackageReference Include="Microsoft.AspNetCore.OpenApi" IncludeAssets="compile" />
 		<PackageReference Include="NLog" />
 		<PackageReference Include="System.Composition.AttributedModel" IncludeAssets="compile" />
 		<PackageReference Include="SteamKit2" />
@@ -59,14 +60,8 @@
 	  <Content Include="..\.github\workflows\ci.yml">
 	    <Link>.github\workflows\ci.yml</Link>
 	  </Content>
-	  <Content Include="..\.github\workflows\keepalive.yml">
-	    <Link>.github\workflows\keepalive.yml</Link>
-	  </Content>
 	  <Content Include="..\.github\workflows\publish.yml">
 	    <Link>.github\workflows\publish.yml</Link>
-	  </Content>
-	  <Content Include="..\.github\workflows\test_integration.yml">
-	    <Link>.github\workflows\test_integration.yml</Link>
 	  </Content>
 	  <Content Include="..\Directory.Build.props">
 	    <Link>Directory.Build.props</Link>

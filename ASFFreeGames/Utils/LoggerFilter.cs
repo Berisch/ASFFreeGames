@@ -59,7 +59,7 @@ public partial class LoggerFilter {
 
             bool reconfigure = false;
 
-            foreach (LoggingRule loggingRule in config.LoggingRules.Where(loggingRule => !loggingRule.Filters.Any(f => ReferenceEquals(f, MethodFilter)))) {
+            foreach (LoggingRule loggingRule in (config?.LoggingRules ?? []).Where(loggingRule => !loggingRule.Filters.Any(f => ReferenceEquals(f, MethodFilter)))) {
                 loggingRule.Filters.Insert(0, MethodFilter);
                 reconfigure = true;
             }
@@ -68,7 +68,7 @@ public partial class LoggerFilter {
                 logger.Factory.ReconfigExistingLoggers();
             }
 
-            return new LoggerRemoveFilterDisposable(node);
+            return new LoggerRemoveFilterDisposable(filters, node);
         }
     }
 
@@ -126,8 +126,10 @@ public partial class LoggerFilter {
     private bool RemoveFilters(BotName botName) => Filters.TryRemove(botName, out _);
 
     // A class that implements a disposable object for removing filters
-    private sealed class LoggerRemoveFilterDisposable(LinkedListNode<Func<LogEventInfo, bool>> node) : IDisposable {
-        public void Dispose() => node.List?.Remove(node);
+    private sealed class LoggerRemoveFilterDisposable(
+        LinkedList<Func<LogEventInfo, bool>> list,
+        LinkedListNode<Func<LogEventInfo, bool>> node) : IDisposable {
+        public void Dispose() => list.Remove(node);
     }
 
     // A class that implements a custom filter that invokes a method
