@@ -87,22 +87,20 @@ internal static class RedditHelper {
 					kind = ERedditGameEntryKind.Dlc;
 				}
 
-				foreach (Group matchGroup in match.Groups) {
-					if (!matchGroup.Name.StartsWith("appid", StringComparison.InvariantCulture)) {
-						continue;
+				// Use separate matches to extract all app IDs (avoids Group.Captures compatibility issues)
+				MatchCollection appIdMatches = RedditHelperRegexes.AppId().Matches(match.Value);
+
+				foreach (Match appIdMatch in appIdMatches) {
+					string appIdValue = appIdMatch.Groups["appid"].Value;
+					RedditGameEntry gameEntry = new(appIdValue, kind, date);
+
+					try {
+						games.Add(gameEntry, default(EmptyStruct));
 					}
+					catch (ArgumentException) { }
 
-					foreach (Capture capture in matchGroup.Captures) {
-						RedditGameEntry gameEntry = new(capture.Value, kind, date);
-
-						try {
-							games.Add(gameEntry, default(EmptyStruct));
-						}
-						catch (ArgumentException) { }
-
-						if (games.Count >= MaxGameEntry) {
-							return returnValue();
-						}
+					if (games.Count >= MaxGameEntry) {
+						return returnValue();
 					}
 				}
 			}

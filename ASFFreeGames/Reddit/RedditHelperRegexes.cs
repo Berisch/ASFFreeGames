@@ -6,6 +6,9 @@ internal static partial class RedditHelperRegexes {
 	[GeneratedRegex(@"(.addlicense)\s+(asf)?\s*((?<appid>(s/|a/)\d+)\s*,?\s*)+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
 	internal static partial Regex Command();
 
+	[GeneratedRegex(@"(?<appid>(s/|a/)\d+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+	internal static partial Regex AppId();
+
 	[GeneratedRegex(@"free\s+DLC\s+for\s+a", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
 	internal static partial Regex IsDlc();
 
