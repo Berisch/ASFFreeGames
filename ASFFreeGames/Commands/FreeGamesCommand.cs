@@ -373,7 +373,8 @@ namespace ASFFreeGames.Commands {
 							res++;
 						}
 						else {
-							if ((requestSource != ECollectGameRequestSource.RequestedByUser) && (resp?.Contains("RateLimited", StringComparison.InvariantCultureIgnoreCase) ?? false)) {
+							// "RateLimited" for packages (sub/), "RateLimitExceeded" for apps (app/)
+							if ((requestSource != ECollectGameRequestSource.RequestedByUser) && (resp?.Contains("RateLimit", StringComparison.InvariantCultureIgnoreCase) ?? false)) {
 								if (VerboseLog) {
 									bot.ArchiLogger.LogGenericWarning("[FreeGames] Rate limit reached ! Skipping remaining games...", nameof(CollectGames));
 								}
