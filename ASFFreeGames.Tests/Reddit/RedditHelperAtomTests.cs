@@ -48,6 +48,13 @@ public sealed class RedditHelperAtomTests {
 	[InlineData("<feed><entry><content type=\"html\">!addlicense asf a/1</content></entry></feed>")] // no <updated>
 	public void TestInvalidFeedsYieldNothing(string feed) => Assert.Empty(RedditHelper.LoadMessagesFromAtom(feed));
 
+	[Theory]
+	[InlineData("&lt;code&gt;!addlicense asf a/1 &lt;/code&gt;", "<code>!addlicense asf a/1 </code>")]
+	[InlineData("I&amp;#39;m&amp;nbsp;a bot", "I&#39;m&nbsp;a bot")] // a single pass only decodes the xml level
+	[InlineData("I&#39;m&nbsp;a&#x200B;bot &#32;", "I'm a​bot  ")]
+	[InlineData("&unknown; &#0; &#xD800; &", "&unknown; &#0; &#xD800; &")]
+	public void TestDecodeHtmlEntities(string input, string expected) => Assert.Equal(expected, RedditHelper.DecodeHtmlEntities(input));
+
 	private static async Task<RedditGameEntry[]> LoadAsfinfoFeedEntries() {
 		Assembly assembly = Assembly.GetExecutingAssembly();
 

@@ -88,8 +88,9 @@ public sealed class SimpleHttpClientFactory(ASFFreeGamesOptions options) : IDisp
 
 	public void Dispose() {
 		lock (Cache) {
-			foreach ((_, (_, SimpleHttpClient? item2)) in Cache) {
-				item2.Dispose();
+			// no tuple deconstruction here: TupleExtensions.Deconstruct is trimmed out of ASF builds
+			foreach (Tuple<IWebProxy?, SimpleHttpClient> entry in Cache.Values) {
+				entry.Item2.Dispose();
 			}
 
 			Cache.Clear();

@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -96,7 +97,7 @@ internal static class RedditHelper {
 			}
 
 			// the content is html escaped inside the xml, and the html itself contains entities such as &nbsp;
-			string text = WebUtility.HtmlDecode(WebUtility.HtmlDecode(content.Groups["content"].Value));
+			string text = DecodeHtmlEntities(DecodeHtmlEntities(content.Groups["content"].Value));
 
 			if (!AddGamesFromText(games, text, date.ToUnixTimeSeconds())) {
 				break;
@@ -144,6 +145,53 @@ internal static class RedditHelper {
 
 		return true;
 	}
+
+	/// <summary>
+	///     Decodes numeric entities and the few named ones found in the feed.
+	/// </summary>
+	/// <remarks>System.Net.WebUtility.HtmlDecode and Regex.Replace with a MatchEvaluator would do, but both are trimmed out of ASF builds.</remarks>
+	internal static string DecodeHtmlEntities(string text) {
+		MatchCollection matches = RedditHelperRegexes.HtmlEntity().Matches(text);
+
+		if (matches.Count == 0) {
+			return text;
+		}
+
+		StringBuilder builder = new(text.Length);
+		int last = 0;
+
+		foreach (Match match in matches) {
+			builder.Append(text, last, match.Index - last);
+			builder.Append(DecodeHtmlEntity(match));
+			last = match.Index + match.Length;
+		}
+
+		builder.Append(text, last, text.Length - last);
+
+		return builder.ToString();
+	}
+
+	private static string DecodeHtmlEntity(Match match) {
+		if (match.Groups["dec"].Success) {
+			return int.TryParse(match.Groups["dec"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out int codePoint) ? FromCodePoint(codePoint, match.Value) : match.Value;
+		}
+
+		if (match.Groups["hex"].Success) {
+			return int.TryParse(match.Groups["hex"].Value, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out int codePoint) ? FromCodePoint(codePoint, match.Value) : match.Value;
+		}
+
+		return match.Groups["name"].Value switch {
+			"amp" => "&",
+			"lt" => "<",
+			"gt" => ">",
+			"quot" => "\"",
+			"apos" => "'",
+			"nbsp" => " ",
+			_ => match.Value
+		};
+	}
+
+	private static string FromCodePoint(int codePoint, string fallback) => codePoint is > 0 and <= 0x10FFFF and not (>= 0xD800 and <= 0xDFFF) ? char.ConvertFromUtf32(codePoint) : fallback;
 
 	private static IReadOnlyCollection<RedditGameEntry> TrimToMaxGameEntry(Maxisoft.Utils.Collections.Dictionaries.OrderedDictionary<RedditGameEntry, EmptyStruct> games) {
 		while (games.Count is > 0 and > MaxGameEntry) {

@@ -233,9 +233,10 @@ namespace ASFFreeGames.Commands {
 			}
 
 			// a bot that logged on late must not be skipped just because a collection is already running, wait for it instead
-			TimeSpan semaphoreTimeout = requestSource is ECollectGameRequestSource.BotLoggedOn ? TimeSpan.FromMinutes(3) : TimeSpan.FromMilliseconds(100);
+			// note: the (TimeSpan, CancellationToken) overload is trimmed out of ASF builds, keep the int one
+			int semaphoreTimeoutMs = requestSource is ECollectGameRequestSource.BotLoggedOn ? 3 * 60 * 1000 : 100;
 
-			if (!await semaphore.WaitAsync(semaphoreTimeout, cancellationToken).ConfigureAwait(false)) {
+			if (!await semaphore.WaitAsync(semaphoreTimeoutMs, cancellationToken).ConfigureAwait(false)) {
 				return 0;
 			}
 

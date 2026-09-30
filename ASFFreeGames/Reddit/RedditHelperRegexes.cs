@@ -25,4 +25,8 @@ internal static partial class RedditHelperRegexes {
 
 	[GeneratedRegex(@"<updated>(?<date>[^<]+)</updated>", RegexOptions.CultureInvariant)]
 	internal static partial Regex AtomUpdated();
+
+	// System.Net.WebUtility is trimmed out of ASF builds, so the few entities used by the feed are decoded by hand
+	[GeneratedRegex(@"&(?:#(?<dec>[0-9]{1,7})|#[xX](?<hex>[0-9a-fA-F]{1,6})|(?<name>amp|lt|gt|quot|apos|nbsp));", RegexOptions.CultureInvariant)]
+	internal static partial Regex HtmlEntity();
 }
