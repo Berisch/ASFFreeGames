@@ -278,7 +278,9 @@ internal static class RedditHelper {
 		throw new RedditServerException("reddit rate limit reached", HttpStatusCode.TooManyRequests);
 	}
 
-	private static Uri GetUrl() => new($"https://www.reddit.com/user/{User}.rss?sort=new&limit=100", UriKind.Absolute);
+	// 25 entries, like the former JSON listing: each game is posted in ~2 subreddits, so this is ~13 unique games,
+	// which must stay well under what a bot's CompletedAppList remembers (it evicts most entries past ~33)
+	private static Uri GetUrl() => new($"https://www.reddit.com/user/{User}.rss?sort=new&limit=25", UriKind.Absolute);
 
 	/// <summary>
 	///     Handles too many requests by checking the status code and headers of the response.

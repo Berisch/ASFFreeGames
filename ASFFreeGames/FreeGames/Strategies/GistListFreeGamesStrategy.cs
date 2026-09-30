@@ -19,7 +19,8 @@ namespace Maxisoft.ASF.FreeGames.Strategies;
 /// <remarks>The gist has neither dates nor free to play / DLC flags, so entries are reported with an unknown date (0) and no kind.</remarks>
 [SuppressMessage("ReSharper", "RedundantNullableFlowAttribute")]
 public sealed partial class GistListFreeGamesStrategy : IListFreeGamesStrategy {
-	internal const int MaxEntries = 100;
+	// kept well under what a bot's CompletedAppList remembers (it evicts most entries past ~33), see RedditHelper.GetUrl
+	internal const int MaxEntries = 20;
 	internal static readonly Uri GistUri = new("https://gist.githubusercontent.com/C4illin/e8c5cf365d816f2640242bf01d8d3675/raw/Steam%20Codes", UriKind.Absolute);
 
 	public void Dispose() { }
