@@ -60,14 +60,8 @@
 	  <Content Include="..\.github\workflows\ci.yml">
 	    <Link>.github\workflows\ci.yml</Link>
 	  </Content>
-	  <Content Include="..\.github\workflows\keepalive.yml">
-	    <Link>.github\workflows\keepalive.yml</Link>
-	  </Content>
 	  <Content Include="..\.github\workflows\publish.yml">
 	    <Link>.github\workflows\publish.yml</Link>
-	  </Content>
-	  <Content Include="..\.github\workflows\test_integration.yml">
-	    <Link>.github\workflows\test_integration.yml</Link>
 	  </Content>
 	  <Content Include="..\Directory.Build.props">
 	    <Link>Directory.Build.props</Link>
