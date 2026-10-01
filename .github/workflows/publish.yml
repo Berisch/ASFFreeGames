@@ -68,17 +68,18 @@ jobs:
                     ;;
             esac
 
-            # Create the final zip file
+            # Create the final zip file, with the plugin files at the archive root like ASF's plugin template:
+            # ASF extracts plugin updates into the directory of the plugin assembly, so a top level folder would nest on every update
             case "$(uname -s)" in
                 "Darwin")
                     # We prefer to use zip on OS X as 7z implementation on that OS doesn't handle file permissions (chmod +x)
                     if command -v zip >/dev/null; then
                         (
-                            cd "${GITHUB_WORKSPACE}/out/${1}"
-                            zip -q -r $zip_args "../${PLUGIN_NAME}-${1}.zip" .
+                            cd "${GITHUB_WORKSPACE}/out/${1}/${PLUGIN_NAME}"
+                            zip -q -r $zip_args "../../${PLUGIN_NAME}-${1}.zip" .
                         )
                     elif command -v 7z >/dev/null; then
-                        7z a -bd -slp -tzip -mm=Deflate $seven_zip_args "out/${PLUGIN_NAME}-${1}.zip" "${GITHUB_WORKSPACE}/out/${1}/*"
+                        7z a -bd -slp -tzip -mm=Deflate $seven_zip_args "out/${PLUGIN_NAME}-${1}.zip" "${GITHUB_WORKSPACE}/out/${1}/${PLUGIN_NAME}/*"
                     else
                         echo "ERROR: No supported zip tool!"
                         return 1
@@ -86,11 +87,11 @@ jobs:
                     ;;
                 *)
                     if command -v 7z >/dev/null; then
-                        7z a -bd -slp -tzip -mm=Deflate $seven_zip_args "out/${PLUGIN_NAME}-${1}.zip" "${GITHUB_WORKSPACE}/out/${1}/*"
+                        7z a -bd -slp -tzip -mm=Deflate $seven_zip_args "out/${PLUGIN_NAME}-${1}.zip" "${GITHUB_WORKSPACE}/out/${1}/${PLUGIN_NAME}/*"
                     elif command -v zip >/dev/null; then
                         (
-                            cd "${GITHUB_WORKSPACE}/out/${1}"
-                            zip -q -r $zip_args "../${PLUGIN_NAME}-${1}.zip" .
+                            cd "${GITHUB_WORKSPACE}/out/${1}/${PLUGIN_NAME}"
+                            zip -q -r $zip_args "../../${PLUGIN_NAME}-${1}.zip" .
                         )
                     else
                         echo "ERROR: No supported zip tool!"
@@ -161,7 +162,7 @@ jobs:
             Get-Item "$env:GITHUB_WORKSPACE\out\$variant\$env:PLUGIN_NAME\ZstdSharp.dll" -ErrorAction SilentlyContinue | Remove-Item
 
             # Create the final zip file
-            7z a -bd -slp -tzip -mm=Deflate $compressionArgs "out\$env:PLUGIN_NAME-$variant.zip" "$env:GITHUB_WORKSPACE\out\$variant\*"
+            7z a -bd -slp -tzip -mm=Deflate $compressionArgs "out\$env:PLUGIN_NAME-$variant.zip" "$env:GITHUB_WORKSPACE\out\$variant\$env:PLUGIN_NAME\*"
 
             if ($LastExitCode -ne 0) {
                 throw "Last command failed."
@@ -204,7 +205,7 @@ jobs:
     - name: Unzip and copy generic artifact
       run: |
         mkdir -p attest_provenance
-        unzip out/${{ env.PLUGIN_NAME }}-generic.zip -d attest_provenance
+        unzip out/${{ env.PLUGIN_NAME }}-generic.zip -d attest_provenance/${{ env.PLUGIN_NAME }}
         cp --archive out/${{ env.PLUGIN_NAME }}-generic.zip attest_provenance
 
     - name: Clean up dll files

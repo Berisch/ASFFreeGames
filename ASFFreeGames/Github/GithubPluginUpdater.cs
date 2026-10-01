@@ -81,7 +81,9 @@ public class GithubPluginUpdater(Lazy<Version> version) {
 			return null;
 		}
 
-		ReleaseAsset? asset = releaseResponse.Assets.FirstOrDefault(static asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) && (asset.Size > (1 << 18)));
+		// the size check only rejects broken or empty archives: release zips are ~160 KB since dependencies shipped by ASF are stripped,
+		// the former 256 KB minimum silently rejected every release since v1.8.0
+		ReleaseAsset? asset = releaseResponse.Assets.FirstOrDefault(static asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) && (asset.Size > (1 << 16)));
 
 		if ((asset == null) || !releaseResponse.Assets.Contains(asset)) {
 			LogGenericError($"GetLatestRelease for version {newVersion} returned no valid assets");
