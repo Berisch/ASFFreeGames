@@ -1,5 +1,6 @@
 # This action is responsible for automatically bumping the ArchiSteamFarm submodule reference to the latest stable release
 # Unlike upstream, this fork also moves the actual submodule commit, but only after the plugin builds and passes its tests against the new ASF release
+# The plugin's own NLog pin is moved along with it, to the NLog version the new ASF release resolves
 # If the build or tests fail, the job fails and nothing is committed, so a broken ASF bump never lands on the branch
 name: Plugin-bump-asf-reference
 
@@ -35,6 +36,7 @@ jobs:
         owner: JustArchiNET
         repo: ArchiSteamFarm
         excludes: draft,prerelease
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Setup .NET Core
       uses: actions/setup-dotnet@v4
@@ -64,6 +66,13 @@ jobs:
         git add -A ".gitmodules" "ArchiSteamFarm"
 
         if ! git diff --cached --quiet; then
+            # The plugin pins NLog itself, while ASF only pulls it in through NLog.Web.AspNetCore, so match the pin to the NLog version the new ASF release resolves, otherwise restore fails with NU1605 (package downgrade)
+            dotnet restore ArchiSteamFarm/ArchiSteamFarm/ArchiSteamFarm.csproj --nologo
+            ASF_NLOG_VERSION="$(jq -r '.libraries | keys[] | select(startswith("NLog/")) | ltrimstr("NLog/")' ArchiSteamFarm/ArchiSteamFarm/obj/project.assets.json)"
+            [ -n "$ASF_NLOG_VERSION" ]
+            sed -i "s|\(<PackageVersion Include=\"NLog\" Version=\"\)[^\"]*\"|\1${ASF_NLOG_VERSION}\"|" Directory.Packages.props
+            git add Directory.Packages.props
+
             # Only move the submodule when the plugin still builds and passes its tests against the new ASF release
             dotnet build -c Release -p:ContinuousIntegrationBuild=true -p:UseAppHost=false --nologo
             dotnet test -c Release --no-build -p:ContinuousIntegrationBuild=true -p:UseAppHost=false --nologo
