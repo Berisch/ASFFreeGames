@@ -31,6 +31,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\ASFFreeGames\ASFFreeGames.csproj" />
+      <ProjectReference Include="..\ArchiSteamFarm\ArchiSteamFarm\ArchiSteamFarm.csproj" />
     </ItemGroup>
 
 </Project>

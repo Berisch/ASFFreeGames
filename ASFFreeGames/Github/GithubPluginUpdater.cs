@@ -1,8 +1,8 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
-using ArchiSteamFarm;
-using ArchiSteamFarm.Localization;
 using ArchiSteamFarm.Web.GitHub;
 using ArchiSteamFarm.Web.GitHub.Data;
 
@@ -10,89 +10,81 @@ namespace Maxisoft.ASF.Github;
 
 public class GithubPluginUpdater(Lazy<Version> version) {
 	public const string RepositoryName = "Berisch/ASFFreeGames";
+#if ASF_V7
+	private const int BuildAsfMajor = 7;
+#else
+	private const int BuildAsfMajor = 6;
+#endif
+	private static readonly Version LastLegacyVersion = new(1, 10, 2, 0);
+	private const int MinimumArchiveSize = 1 << 16;
+
 	public bool CanUpdate { get; internal set; } = true;
 
-	private Version CurrentVersion => version.Value;
+	public Task<Uri?> GetTargetReleaseURL(Version asfVersion, string asfVariant, bool asfUpdate, bool stable, bool forced) =>
+		GetTargetReleaseURL(asfVersion, asfVariant, asfUpdate, stable, forced, CancellationToken.None);
 
-	private static void LogGenericError(string message) {
-		if (string.IsNullOrEmpty(message)) {
-			return;
-		}
-
-		ArchiSteamFarm.Core.ASF.ArchiLogger.LogGenericError($"{nameof(GithubPluginUpdater)}: {message}");
-	}
-
-	private static void LogGenericDebug(string message) {
-		if (string.IsNullOrEmpty(message)) {
-			return;
-		}
-
-		ArchiSteamFarm.Core.ASF.ArchiLogger.LogGenericDebug($"{nameof(GithubPluginUpdater)}: {message}");
-	}
-
-	public async Task<Uri?> GetTargetReleaseURL(Version asfVersion, string asfVariant, bool asfUpdate, bool stable, bool forced) {
+	public async Task<Uri?> GetTargetReleaseURL(Version asfVersion, string asfVariant, bool asfUpdate, bool stable, bool forced, CancellationToken cancellationToken) {
 		ArgumentNullException.ThrowIfNull(asfVersion);
 		ArgumentException.ThrowIfNullOrEmpty(asfVariant);
 
 		if (!CanUpdate) {
-			LogGenericDebug("CanUpdate is false");
-
 			return null;
 		}
 
-		if (string.IsNullOrEmpty(RepositoryName)) {
-			LogGenericError("RepositoryName is null or empty");
-
+		// GitHub's "latest" release stays on the single-archive bridge for older plugin installations.
+		var releases = await GitHubService.GetReleases(RepositoryName, 100, cancellationToken).ConfigureAwait(false);
+		if (releases is null) {
+			ArchiSteamFarm.Core.ASF.ArchiLogger.LogGenericError($"{nameof(GithubPluginUpdater)}: GetReleases returned null");
 			return null;
 		}
 
-		ReleaseResponse? releaseResponse = await GitHubService.GetLatestRelease(RepositoryName).ConfigureAwait(false);
-
-		if (releaseResponse == null) {
-			LogGenericError("GetLatestRelease returned null");
-
-			return null;
+		ReleaseAsset? asset = SelectReleaseAsset(releases, asfVersion.Major, asfUpdate, stable, forced, DateTime.UtcNow);
+		if (asset is not null) {
+			ArchiSteamFarm.Core.ASF.ArchiLogger.LogGenericDebug($"{nameof(GithubPluginUpdater)}: Selected {asset.DownloadURL} for ASF {asfVersion}");
 		}
 
-		if (releaseResponse.IsPreRelease) {
-			LogGenericError("GetLatestRelease returned pre-release");
+		return asset?.DownloadURL;
+	}
 
-			return null;
-		}
+	internal ReleaseAsset? SelectReleaseAsset(IEnumerable<ReleaseResponse> releases, int targetMajor, bool asfUpdate, bool stable, bool forced, DateTime utcNow) {
+		Version currentVersion = NormalizeVersion(version.Value);
+		bool migrating = asfUpdate && (targetMajor != BuildAsfMajor);
+		string targetName = $"ASFFreeGames-V{targetMajor}.zip";
+		Version? bestVersion = null;
+		ReleaseAsset? bestAsset = null;
 
-		if (stable && ((releaseResponse.PublishedAt - DateTime.UtcNow).Duration() < TimeSpan.FromHours(3))) {
-			LogGenericDebug("GetLatestRelease returned too recent");
+		foreach (ReleaseResponse release in releases) {
+			// ASF can replace its own files even if no plugin update was found. A major upgrade needs its matching plugin immediately.
+			if (release.IsPreRelease || (stable && !migrating && (utcNow - release.PublishedAt < TimeSpan.FromHours(3)))) {
+				continue;
+			}
 
-			return null;
-		}
+			ReadOnlySpan<char> tag = release.Tag.AsSpan();
+			if (tag.StartsWith("v", StringComparison.OrdinalIgnoreCase)) {
+				tag = tag[1..];
+			}
+			if (!Version.TryParse(tag, out Version? parsed) || (parsed.Build < 0)) {
+				continue;
+			}
 
-		Version newVersion = new(releaseResponse.Tag.ToUpperInvariant().TrimStart('V'));
+			Version candidateVersion = NormalizeVersion(parsed);
+			if ((candidateVersion <= bestVersion) || (!forced && ((candidateVersion < currentVersion) || ((candidateVersion == currentVersion) && !migrating)))) {
+				continue;
+			}
 
-		if (!forced && (CurrentVersion >= newVersion)) {
-			// Allow same version to be re-updated when we're updating ASF release and more than one asset is found - potential compatibility difference
-			if ((CurrentVersion > newVersion) || !asfUpdate || (releaseResponse.Assets.Count(static asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) < 2)) {
-				return null;
+			ReleaseAsset? asset = release.Assets.FirstOrDefault(a => a.Name.Equals(targetName, StringComparison.Ordinal) && (a.Size > MinimumArchiveSize));
+			// Only the old V6 releases used the generic name.
+			if ((asset is null) && (targetMajor == 6) && (candidateVersion <= LastLegacyVersion)) {
+				asset = release.Assets.FirstOrDefault(static a => a.Name.Equals("ASFFreeGames-generic.zip", StringComparison.Ordinal) && (a.Size > MinimumArchiveSize));
+			}
+			if (asset is not null) {
+				bestVersion = candidateVersion;
+				bestAsset = asset;
 			}
 		}
 
-		if (releaseResponse.Assets.Count == 0) {
-			LogGenericError($"GetLatestRelease for version {newVersion} returned no assets");
-
-			return null;
-		}
-
-		// the size check only rejects broken or empty archives: release zips are ~160 KB since dependencies shipped by ASF are stripped,
-		// the former 256 KB minimum silently rejected every release since v1.8.0
-		ReleaseAsset? asset = releaseResponse.Assets.FirstOrDefault(static asset => asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) && (asset.Size > (1 << 16)));
-
-		if ((asset == null) || !releaseResponse.Assets.Contains(asset)) {
-			LogGenericError($"GetLatestRelease for version {newVersion} returned no valid assets");
-
-			return null;
-		}
-
-		LogGenericDebug($"GetLatestRelease for version {newVersion} returned asset {asset.Name} with url {asset.DownloadURL}");
-
-		return asset.DownloadURL;
+		return bestAsset;
 	}
+
+	private static Version NormalizeVersion(Version value) => value.Revision < 0 ? new Version(value.Major, value.Minor, Math.Max(value.Build, 0), 0) : value;
 }
