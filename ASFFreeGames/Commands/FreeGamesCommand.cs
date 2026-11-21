@@ -75,7 +75,7 @@ namespace ASFFreeGames.Commands {
 				}
 			}
 
-			return await HandleCollectCommand(bot).ConfigureAwait(false);
+			return await HandleCollectCommand(bot, cancellationToken).ConfigureAwait(false);
 		}
 
 		private static string FormatBotResponse(Bot? bot, string resp) => IBotCommand.FormatBotResponse(bot, resp);
@@ -144,8 +144,8 @@ namespace ASFFreeGames.Commands {
 			return Task.FromResult(FormatBotResponse(bot, $"Reloaded {ASFFreeGamesPlugin.StaticName} options"))!;
 		}
 
-		private async Task<string?> HandleCollectCommand(Bot? bot) {
-			int collected = await CollectGames(bot is not null ? [bot] : Context.Bots.ToArray(), ECollectGameRequestSource.RequestedByUser, Context.CancellationToken).ConfigureAwait(false);
+		private async Task<string?> HandleCollectCommand(Bot? bot, CancellationToken cancellationToken) {
+			int collected = await CollectGames(bot is not null ? [bot] : Context.Bots.ToArray(), ECollectGameRequestSource.RequestedByUser, cancellationToken).ConfigureAwait(false);
 
 			return FormatBotResponse(bot, $"Collected a total of {collected} free game(s)");
 		}
@@ -350,7 +350,11 @@ namespace ASFFreeGames.Commands {
 						}
 
 						using (LoggerFilter.DisableLoggingForAddLicenseCommonErrors(_ => !VerboseLog && (requestSource is not ECollectGameRequestSource.RequestedByUser) && context.ShouldHideErrorLogForApp(in gid), bot)) {
+#if NET11_0_OR_GREATER
+							resp = await bot.Commands.Response(EBotUserAccess.Operator, cmd, cancellationToken: cancellationToken).ConfigureAwait(false);
+#else
 							resp = await bot.Commands.Response(EAccess.Operator, cmd).ConfigureAwait(false);
+#endif
 						}
 
 						bool success = false;

@@ -4,7 +4,6 @@
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<DebugSymbols>True</DebugSymbols>
 		<DebugType>pdbonly</DebugType>
-		<TargetFramework>net10.0</TargetFramework>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -17,7 +16,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<ProjectReference Include="..\ArchiSteamFarm\ArchiSteamFarm\ArchiSteamFarm.csproj" ExcludeAssets="all" Private="false" />
+		<ProjectReference Include="$(ASFSourceDir)/ArchiSteamFarm/ArchiSteamFarm.csproj" ExcludeAssets="all" Private="false" />
 	</ItemGroup>
 
 	<ItemGroup>

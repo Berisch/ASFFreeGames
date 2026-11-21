@@ -76,7 +76,7 @@ public static class ASFFreeGamesOptionsLoader {
 			catch (Exception) {
 				fs.Position = 0;
 
-				await fs.WriteAsync(((ReadOnlyMemory<byte>) buffer)[..read], cancellationToken).ConfigureAwait(false);
+				await fs.WriteAsync(((ReadOnlyMemory<byte>) buffer)[..read], CancellationToken.None).ConfigureAwait(false);
 				fs.SetLength(read);
 
 				throw;
