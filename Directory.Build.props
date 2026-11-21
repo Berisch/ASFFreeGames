@@ -1,10 +1,18 @@
 <Project>
-	<Import Project="ArchiSteamFarm/Directory.Build.props" />
+	<PropertyGroup>
+		<ASFVersion Condition="'$(ASFVersion)' == ''">6</ASFVersion>
+		<ASFSourceDir Condition="'$(ASFSourceDir)' == '' AND '$(ASFVersion)' == '7'">$(MSBuildThisFileDirectory)out/ArchiSteamFarm-V7</ASFSourceDir>
+		<ASFSourceDir Condition="'$(ASFSourceDir)' == ''">$(MSBuildThisFileDirectory)ArchiSteamFarm</ASFSourceDir>
+		<BaseIntermediateOutputPath>obj/ASF$(ASFVersion)/</BaseIntermediateOutputPath>
+		<DefaultItemExcludes>$(DefaultItemExcludes);obj/**</DefaultItemExcludes>
+	</PropertyGroup>
+
+	<Import Project="$(ASFSourceDir)/Directory.Build.props" />
 
 	<PropertyGroup>
 		<PluginName>ASFFreeGames</PluginName>
-		<Version>1.10.2.0</Version>
-		<TargetFramework>net10.0</TargetFramework>
+		<Version>1.11.0.0</Version>
+		<DefineConstants>$(DefineConstants);ASF_V$(ASFVersion)</DefineConstants>
 	</PropertyGroup>
 
 	<PropertyGroup>
@@ -50,4 +58,8 @@
 		<PublicSign>false</PublicSign>
 		<SignAssembly>true</SignAssembly>
 	</PropertyGroup>
+	<Target Name="ValidateASFVersion" BeforeTargets="CollectPackageReferences;PrepareForBuild">
+		<Error Condition="'$(ASFVersion)' != '6' AND '$(ASFVersion)' != '7'" Text="ASFVersion must be 6 or 7." />
+		<Error Condition="('$(ASFVersion)' == '6' AND '$(TargetFramework)' != 'net10.0') OR ('$(ASFVersion)' == '7' AND '$(TargetFramework)' != 'net11.0')" Text="ASFSourceDir must point to the matching ASF release for ASFVersion=$(ASFVersion)." />
+	</Target>
 </Project>

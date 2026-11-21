@@ -19,6 +19,12 @@ using Maxisoft.ASF.Utils;
 using Maxisoft.ASF.Utils.Workarounds;
 using SteamKit2;
 using static ArchiSteamFarm.Core.ASF;
+#if NET11_0_OR_GREATER
+using AsfBotCommand = ArchiSteamFarm.Plugins.Interfaces.IBotCommand;
+#else
+using AsfBotCommand = ArchiSteamFarm.Plugins.Interfaces.IBotCommand2;
+using EBotUserAccess = ArchiSteamFarm.Steam.EAccess;
+#endif
 
 namespace Maxisoft.ASF;
 
@@ -31,7 +37,7 @@ internal interface IASFFreeGamesPlugin {
 
 #pragma warning disable CA1812 // ASF uses this class during runtime
 [SuppressMessage("Design", "CA1001:Disposable fields")]
-internal sealed class ASFFreeGamesPlugin : IASF, IBot, IBotConnection, IBotCommand2, IUpdateAware, IASFFreeGamesPlugin, IGitHubPluginUpdates {
+internal sealed partial class ASFFreeGamesPlugin : IASF, IBot, IBotConnection, AsfBotCommand, IUpdateAware, IASFFreeGamesPlugin, IGitHubPluginUpdates {
 	internal const string StaticName = nameof(ASFFreeGamesPlugin);
 	private const int CollectGamesTimeout = 3 * 60 * 1000;
 
@@ -79,23 +85,23 @@ internal sealed class ASFFreeGamesPlugin : IASF, IBot, IBotConnection, IBotComma
 		_context.Value = new PluginContext(Bots, BotContextRegistry, Options, LoggerFilter) { CancellationTokenLazy = new Lazy<CancellationToken>(() => CancellationTokenSourceLazy.Value.Token) };
 	}
 
-	public async Task<string?> OnBotCommand(Bot? bot, EAccess access, string message, string[] args, ulong steamID = 0) {
+	public async Task<string?> OnBotCommand(Bot? bot, EBotUserAccess access, string message, string[] args, ulong steamID = 0, CancellationToken cancellationToken = default) {
 		if (!Context.Valid) {
 			CreateContext();
 		}
 
-		return await CommandDispatcher.Execute(bot, message, args, steamID).ConfigureAwait(false);
+		return await CommandDispatcher.Execute(bot, message, args, steamID, cancellationToken).ConfigureAwait(false);
 	}
 
-	public async Task OnBotDestroy(Bot bot) => await RemoveBot(bot).ConfigureAwait(false);
+	public Task OnBotDestroy(Bot bot, CancellationToken cancellationToken = default) => RemoveBot(bot, cancellationToken);
 
-	public async Task OnBotDisconnected(Bot bot, EResult reason) => await RemoveBot(bot).ConfigureAwait(false);
+	public Task OnBotDisconnected(Bot bot, EResult reason, CancellationToken cancellationToken = default) => RemoveBot(bot, cancellationToken);
 
-	public Task OnBotInit(Bot bot) => Task.CompletedTask;
+	public Task OnBotInit(Bot bot, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
-	public async Task OnBotLoggedOn(Bot bot) => await RegisterBot(bot).ConfigureAwait(false);
+	public Task OnBotLoggedOn(Bot bot, CancellationToken cancellationToken = default) => RegisterBot(bot, cancellationToken);
 
-	public Task OnLoaded() {
+	public Task OnLoaded(CancellationToken cancellationToken = default) {
 		if (VerboseLog) {
 			ArchiLogger.LogGenericInfo($"Loaded {Name}");
 		}
@@ -103,7 +109,7 @@ internal sealed class ASFFreeGamesPlugin : IASF, IBot, IBotConnection, IBotComma
 		return Task.CompletedTask;
 	}
 
-	public async Task OnASFInit(IReadOnlyDictionary<string, JsonElement>? additionalConfigProperties = null) {
+	public async Task OnASFInit(IReadOnlyDictionary<string, JsonElement>? additionalConfigProperties = null, CancellationToken cancellationToken = default) {
 		ASFFreeGamesOptionsLoader.Bind(ref OptionsField);
 		JsonElement? jsonElement = GlobalDatabase?.LoadFromJsonStorage($"{Name}.Verbose");
 
@@ -111,12 +117,12 @@ internal sealed class ASFFreeGamesPlugin : IASF, IBot, IBotConnection, IBotComma
 			Options.VerboseLog = true;
 		}
 
-		await SaveOptions(CancellationToken).ConfigureAwait(false);
+		await SaveOptions(cancellationToken).ConfigureAwait(false);
 	}
 
-	public async Task OnUpdateFinished(Version currentVersion, Version newVersion) => await SaveOptions(Context.CancellationToken).ConfigureAwait(false);
+	public Task OnUpdateFinished(Version currentVersion, Version newVersion, CancellationToken cancellationToken = default) => SaveOptions(cancellationToken);
 
-	public Task OnUpdateProceeding(Version currentVersion, Version newVersion) => Task.CompletedTask;
+	public Task OnUpdateProceeding(Version currentVersion, Version newVersion, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
 	public async void CollectGamesOnClock(object? source) {
 		CollectIntervalManager.RandomlyChangeCollectInterval(source);
@@ -166,7 +172,7 @@ internal sealed class ASFFreeGamesPlugin : IASF, IBot, IBotConnection, IBotComma
 				string cmd = $"FREEGAMES {FreeGamesCommand.CollectInternalCommandString} " + string.Join(' ', reorderedBots.Select(static bot => bot.BotName));
 
 				try {
-					await OnBotCommand(null, EAccess.None, cmd, cmd.Split()).ConfigureAwait(false);
+					await OnBotCommand(null, EBotUserAccess.None, cmd, cmd.Split(), cancellationToken: cts.Token).ConfigureAwait(false);
 				}
 				catch (Exception ex) {
 					ArchiLogger.LogGenericWarning($"Failed to execute scheduled free games collection: {ex.Message}");
@@ -180,16 +186,16 @@ internal sealed class ASFFreeGamesPlugin : IASF, IBot, IBotConnection, IBotComma
 	/// </summary>
 	private void CreateContext() => Context = new PluginContext(Bots, BotContextRegistry, Options, LoggerFilter, true) { CancellationTokenLazy = new Lazy<CancellationToken>(() => CancellationTokenSourceLazy.Value.Token) };
 
-	private async Task RegisterBot(Bot bot) {
+	private async Task RegisterBot(Bot bot, CancellationToken cancellationToken) {
 		Bots.Add(bot);
 
 		StartTimerIfNeeded();
 
-		await BotContextRegistry.SaveBotContext(bot, new BotContext(bot), CancellationToken).ConfigureAwait(false);
+		await BotContextRegistry.SaveBotContext(bot, new BotContext(bot), cancellationToken).ConfigureAwait(false);
 		BotContext? ctx = BotContextRegistry.GetBotContext(bot);
 
 		if (ctx is not null) {
-			await ctx.LoadFromFileSystem(CancellationToken).ConfigureAwait(false);
+			await ctx.LoadFromFileSystem(cancellationToken).ConfigureAwait(false);
 		}
 
 		OnBotReady(bot);
@@ -228,7 +234,7 @@ internal sealed class ASFFreeGamesPlugin : IASF, IBot, IBotConnection, IBotComma
 
 			// no TemporaryChangeCancellationToken here: it is not safe to use concurrently with a scheduled run
 			string cmd = $"FREEGAMES {FreeGamesCommand.CollectCachedInternalCommandString} {bot.BotName}";
-			await OnBotCommand(null, EAccess.None, cmd, cmd.Split()).ConfigureAwait(false);
+			await OnBotCommand(null, EBotUserAccess.None, cmd, cmd.Split(), cancellationToken: CancellationToken).ConfigureAwait(false);
 		}
 		catch (OperationCanceledException) {
 			// plugin is shutting down
@@ -248,14 +254,14 @@ internal sealed class ASFFreeGamesPlugin : IASF, IBot, IBotConnection, IBotComma
 		return allBots.Values.Where(b => b.BotConfig.Enabled && !Bots.Contains(b)).Select(static b => b.BotName).OrderBy(static name => name, StringComparer.OrdinalIgnoreCase).ToArray();
 	}
 
-	private async Task RemoveBot(Bot bot) {
+	private async Task RemoveBot(Bot bot, CancellationToken cancellationToken) {
 		Bots.Remove(bot);
 
 		BotContext? botContext = BotContextRegistry.GetBotContext(bot);
 
 		if (botContext is not null) {
 			try {
-				await botContext.SaveToFileSystem(CancellationToken).ConfigureAwait(false);
+				await botContext.SaveToFileSystem(cancellationToken).ConfigureAwait(false);
 			}
 			finally {
 				await BotContextRegistry.RemoveBotContext(bot).ConfigureAwait(false);
@@ -271,27 +277,13 @@ internal sealed class ASFFreeGamesPlugin : IASF, IBot, IBotConnection, IBotComma
 		BotPackageChecker.RemoveBotCache(bot);
 	}
 
-	// ReSharper disable once UnusedMethodReturnValue.Local
-	private async Task<string?> SaveOptions(CancellationToken cancellationToken) {
-		if (!cancellationToken.IsCancellationRequested) {
-			const string cmd = $"FREEGAMES {FreeGamesCommand.SaveOptionsInternalCommandString}";
-			async Task<string?> continuation() => await OnBotCommand(Bots.FirstOrDefault()!, EAccess.None, cmd, cmd.Split()).ConfigureAwait(false);
-
-			string? result;
-
-			if (Context.Valid) {
-				using (Context.TemporaryChangeCancellationToken(() => cancellationToken)) {
-					result = await continuation().ConfigureAwait(false);
-				}
-			}
-			else {
-				result = await continuation().ConfigureAwait(false);
-			}
-
-			return result;
+	private async Task SaveOptions(CancellationToken cancellationToken) {
+		if (cancellationToken.IsCancellationRequested) {
+			return;
 		}
 
-		return null;
+		const string cmd = $"FREEGAMES {FreeGamesCommand.SaveOptionsInternalCommandString}";
+		await OnBotCommand(Bots.FirstOrDefault(), EBotUserAccess.None, cmd, cmd.Split(), cancellationToken: cancellationToken).ConfigureAwait(false);
 	}
 
 	private void StartTimerIfNeeded() => CollectIntervalManager.StartTimerIfNeeded();
@@ -304,7 +296,9 @@ internal sealed class ASFFreeGamesPlugin : IASF, IBot, IBotConnection, IBotComma
 
 	bool IGitHubPluginUpdates.CanUpdate => Updater.CanUpdate;
 
-	Task<Uri?> IGitHubPluginUpdates.GetTargetReleaseURL(Version asfVersion, string asfVariant, bool asfUpdate, bool stable, bool forced) => Updater.GetTargetReleaseURL(asfVersion, asfVariant, asfUpdate, stable, forced);
+#if NET11_0_OR_GREATER
+	Task<Uri?> IGitHubPluginUpdates.GetTargetReleaseURL(Version asfVersion, string asfVariant, bool asfUpdate, bool stable, bool forced, CancellationToken cancellationToken) => Updater.GetTargetReleaseURL(asfVersion, asfVariant, asfUpdate, stable, forced, cancellationToken);
+#endif
 	#endregion
 }
 

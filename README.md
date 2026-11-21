@@ -6,7 +6,7 @@
 
 ASF-FreeGames is a **[plugin](https://github.com/JustArchiNET/ArchiSteamFarm/wiki/Plugins)** for **[ArchiSteamFarm](https://github.com/JustArchiNET/ArchiSteamFarm)** allowing one to automatically **collect free steam games** 🔑 posted on [Reddit](https://www.reddit.com/user/ASFinfo?sort=new).
 
-> This is a maintained fork of [maxisoft/ASFFreeGames](https://github.com/maxisoft/ASFFreeGames). It builds against the latest stable ArchiSteamFarm, and the plugin updates itself from this fork's releases.
+> This is a maintained fork of [maxisoft/ASFFreeGames](https://github.com/maxisoft/ASFFreeGames). It provides separate builds for ASF 6 and ASF 7, and the plugin updates itself from this fork's releases.
 
 ---
 
@@ -16,12 +16,17 @@ ASF-FreeGames is a **[plugin](https://github.com/JustArchiNET/ArchiSteamFarm/wik
 
 ## Installation
 
-- 🔽 Download the latest `ASFFreeGames-generic.zip` from the [release page](https://github.com/Berisch/ASFFreeGames/releases)
-- ➡️ Extract it into its own folder, `plugins/ASFFreeGames/`, of your *ArchiSteamFarm* installation
-- 🔄 (re)start ArchiSteamFarm
+1. Open the [v1.11.0 release](https://github.com/Berisch/ASFFreeGames/releases/tag/v1.11.0) and download `ASFFreeGames-V6.zip` for ASF 6 or `ASFFreeGames-V7.zip` for ASF 7.
+2. Extract the ZIP into `plugins/ASFFreeGames/` in your ASF installation, replacing the previous plugin DLL if prompted.
+3. Start or restart ASF.
 
 > ⚠️ Keep the plugin in its own folder. ASF installs plugin updates by replacing everything in the plugin's folder, so a dll placed directly in `plugins/` would take the other plugins down with it on the first update.
-- 🎉 Have fun
+
+### Upgrading from ASF 6 to ASF 7
+
+If you're running v1.10.1, install the [v1.10.2 bridge release](https://github.com/Berisch/ASFFreeGames/releases/tag/v1.10.2) while still on ASF 6. Use the plugin updater or extract `ASFFreeGames-generic.zip` into `plugins/ASFFreeGames/`. Restart ASF 6 so it loads the bridge before upgrading ASF itself. The bridge can then select the ASF 7 package when ASF performs the upgrade.
+
+If you've already upgraded to ASF 7 with the old plugin, manually extract `ASFFreeGames-V7.zip` into `plugins/ASFFreeGames/` and restart ASF. For ASF 7's `generic` distribution, install the .NET 11 runtime required by ASF.
 
 ## How does it work
 
@@ -85,6 +90,8 @@ The environment variable takes precedence over the config file setting.
 
 The plugin supports checking for updates on GitHub. You can enable automatic updates by modifying the `PluginsUpdateList` property in your ArchiSteamFarm configuration (refer to the [ArchiSteamFarm wiki](https://github.com/JustArchiNET/ArchiSteamFarm/wiki/Configuration#pluginsupdatelist) for details).
 
+GitHub's **Latest** release stays on v1.10.2 with its single ASF 6 archive, `ASFFreeGames-generic.zip`, so v1.10.1 installations can update to the bridge. Starting with the bridge, the updater checks stable release tags and selects the package for the target ASF major version. For a manual install, use the [v1.11.0 release](https://github.com/Berisch/ASFFreeGames/releases/tag/v1.11.0).
+
 **Important note:** Enabling automatic updates for plugins can have security implications. It's recommended to thoroughly test updates in a non-production environment before enabling them on your main system.
 
 ------
@@ -93,6 +100,21 @@ The plugin supports checking for updates on GitHub. You can enable automatic upd
 
 ### Compilation
 
-Simply execute `dotnet build ASFFreeGames -c Release` and find the dll in `ASFFreeGames/bin` folder, which you can drag to ASF's `plugins` folder.
+Run these commands from the repository root in PowerShell. Use the .NET 10 SDK for the ASF 6 build and the .NET 11 SDK for the ASF 7 build.
+
+```powershell
+git submodule update --init --recursive
+./.github/scripts/Publish-Plugin.ps1 -ASFVersion 6
+
+$asf7Tag = (Get-Content .github/asf-v7-tag -Raw).Trim()
+git clone --branch $asf7Tag --recurse-submodules https://github.com/JustArchiNET/ArchiSteamFarm.git out/ArchiSteamFarm-V7
+./.github/scripts/Publish-Plugin.ps1 -ASFVersion 7
+```
+
+The script writes `out/ASFFreeGames-V6.zip` and `out/ASFFreeGames-V7.zip`. If you already have the matching ASF sources in another directory, pass that path with `-ASFSourceDir`.
+
+### Release smoke tests
+
+Extract each archive into `plugins/ASFFreeGames/` in a separate ASF installation. Use ASF 6.3.11.7 for the V6 package and ASF 7.0.0.9 for V7. Start each host, confirm the plugin loads in the ASF log, and run `FREEGAMES RELOAD` to verify that the command is recognized and reloads the configuration.
 
 [![GitHub sponsor](https://img.shields.io/badge/GitHub-sponsor-ea4aaa.svg?logo=github-sponsors)](https://github.com/sponsors/maxisoft)

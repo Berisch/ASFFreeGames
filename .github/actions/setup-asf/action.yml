@@ -1,0 +1,38 @@
+name: Set up ASF build
+description: Install the .NET SDK and select the ASF source for one build
+
+inputs:
+  asf-version:
+    description: ASF major version
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Read ASF 7 pin
+      if: inputs.asf-version == '7'
+      id: asf7
+      shell: bash
+      run: echo "tag=$(cat .github/asf-v7-tag)" >> "$GITHUB_OUTPUT"
+
+    - name: Checkout ASF 7
+      if: inputs.asf-version == '7'
+      uses: actions/checkout@v4.2.2
+      with:
+        repository: JustArchiNET/ArchiSteamFarm
+        ref: refs/tags/${{ steps.asf7.outputs.tag }}
+        path: out/ArchiSteamFarm-V7
+        persist-credentials: false
+        submodules: recursive
+
+    - name: Set up .NET SDK
+      id: dotnet
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ inputs.asf-version == '7' && '11.0.x' || '10.0.x' }}
+
+    - name: Select the installed SDK
+      shell: bash
+      env:
+        SDK_VERSION: ${{ steps.dotnet.outputs.dotnet-version }}
+      run: printf '{"sdk":{"version":"%s"}}\n' "$SDK_VERSION" > global.json

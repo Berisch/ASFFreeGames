@@ -110,7 +110,11 @@ internal sealed class BotContext : IDisposable {
 			return string.Empty;
 		}
 
+#if NET11_0_OR_GREATER
+		string file = bot.GetFilePath(ArchiSteamFarm.Steam.EBotFileType.Config);
+#else
 		string file = bot.GetFilePath(Bot.EFileType.Config);
+#endif
 
 		string res = file.Replace(".json", CompletedAppList.FileExtension, StringComparison.InvariantCultureIgnoreCase);
 

@@ -5,7 +5,6 @@
 
         <IsPackable>false</IsPackable>
 
-        <TargetFramework>net10.0</TargetFramework>
     </PropertyGroup>
 
     <ItemGroup>
@@ -31,7 +30,7 @@
 
     <ItemGroup>
       <ProjectReference Include="..\ASFFreeGames\ASFFreeGames.csproj" />
-      <ProjectReference Include="..\ArchiSteamFarm\ArchiSteamFarm\ArchiSteamFarm.csproj" />
+      <ProjectReference Include="$(ASFSourceDir)/ArchiSteamFarm/ArchiSteamFarm.csproj" />
     </ItemGroup>
 
 </Project>
